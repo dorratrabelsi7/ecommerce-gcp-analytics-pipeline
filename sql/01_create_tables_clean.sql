@@ -15,7 +15,7 @@ CREATE OR REPLACE TABLE ecommerce_analytics.clients (
   registration_date DATE,
   segment STRING
 )
-PARTITION BY DATE(registration_date)
+PARTITION BY registration_date
 CLUSTER BY country, segment
 OPTIONS(
   description = "Client master data with demographics and registration info",
@@ -55,7 +55,7 @@ CREATE OR REPLACE TABLE ecommerce_analytics.orders (
   country STRING,
   created_timestamp TIMESTAMP
 )
-PARTITION BY DATE(order_date)
+PARTITION BY order_date
 CLUSTER BY client_id, country
 OPTIONS(
   description = "Order transactions with amounts and statuses",
@@ -76,7 +76,7 @@ CREATE OR REPLACE TABLE ecommerce_analytics.order_items (
   order_date DATE,
   created_timestamp TIMESTAMP
 )
-PARTITION BY DATE(order_date)
+PARTITION BY order_date
 CLUSTER BY order_id, product_id
 OPTIONS(
   description = "Line items for orders with pricing",
@@ -99,7 +99,7 @@ CREATE OR REPLACE TABLE ecommerce_analytics.incidents (
   resolved_date DATE,
   created_timestamp TIMESTAMP
 )
-PARTITION BY DATE(report_date)
+PARTITION BY report_date
 CLUSTER BY status, priority
 OPTIONS(
   description = "Customer support incidents and tickets",
@@ -122,7 +122,7 @@ CREATE OR REPLACE TABLE ecommerce_analytics.page_views (
   device_type STRING,
   created_timestamp TIMESTAMP
 )
-PARTITION BY DATE(event_date)
+PARTITION BY event_date
 CLUSTER BY client_id, page_url
 OPTIONS(
   description = "Website page view events and sessions",
