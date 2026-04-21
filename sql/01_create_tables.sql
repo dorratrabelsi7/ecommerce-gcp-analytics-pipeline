@@ -2,11 +2,19 @@
 -- BIGQUERY SCHEMA - GENERATED FROM ACTUAL DATA STRUCTURE
 -- ============================================================================
 
+-- Drop existing tables to allow schema changes
+DROP TABLE IF EXISTS ecommerce_analytics.clients;
+DROP TABLE IF EXISTS ecommerce_analytics.products;
+DROP TABLE IF EXISTS ecommerce_analytics.orders;
+DROP TABLE IF EXISTS ecommerce_analytics.order_items;
+DROP TABLE IF EXISTS ecommerce_analytics.incidents;
+DROP TABLE IF EXISTS ecommerce_analytics.page_views;
+
 -- ============================================================================
 -- 1. CLIENTS TABLE
 -- ============================================================================
 
-CREATE OR REPLACE TABLE ecommerce_analytics.clients (
+CREATE TABLE ecommerce_analytics.clients (
   client_id STRING,
   last_name STRING,
   first_name STRING,
@@ -30,7 +38,7 @@ OPTIONS(
 -- 2. PRODUCTS TABLE (No partition - small dimension)
 -- ============================================================================
 
-CREATE OR REPLACE TABLE ecommerce_analytics.products (
+CREATE TABLE ecommerce_analytics.products (
   product_id STRING,
   product_name STRING,
   category STRING,
@@ -46,7 +54,7 @@ OPTIONS(
 -- 3. ORDERS TABLE
 -- ============================================================================
 
-CREATE OR REPLACE TABLE ecommerce_analytics.orders (
+CREATE TABLE ecommerce_analytics.orders (
   order_id STRING,
   client_id STRING,
   order_date TIMESTAMP,
@@ -66,7 +74,7 @@ OPTIONS(
 -- 4. ORDER_ITEMS TABLE
 -- ============================================================================
 
-CREATE OR REPLACE TABLE ecommerce_analytics.order_items (
+CREATE TABLE ecommerce_analytics.order_items (
   item_id STRING,
   order_id STRING,
   product_id STRING,
@@ -82,7 +90,7 @@ OPTIONS(
 -- 5. INCIDENTS TABLE (Support tickets)
 -- ============================================================================
 
-CREATE OR REPLACE TABLE ecommerce_analytics.incidents (
+CREATE TABLE ecommerce_analytics.incidents (
   incident_id STRING,
   client_id STRING,
   report_date TIMESTAMP,
@@ -103,7 +111,7 @@ OPTIONS(
 -- 6. PAGE_VIEWS TABLE (Website analytics)
 -- ============================================================================
 
-CREATE OR REPLACE TABLE ecommerce_analytics.page_views (
+CREATE TABLE ecommerce_analytics.page_views (
   session_id STRING,
   client_id STRING,
   page STRING,
