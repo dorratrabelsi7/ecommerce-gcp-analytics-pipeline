@@ -22,7 +22,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from pathlib import Path
 
 import numpy as np
@@ -364,10 +364,14 @@ def generate_page_views(clients_df):
         hour += np.random.randint(-2, 3)  # Add variance
         hour = max(0, min(23, hour))
         
-        event_datetime = fake.date_between_dates(
+        base_date = fake.date_between_dates(
             date_start=DATE_START,
             date_end=DATE_END
-        ).replace(hour=hour, minute=np.random.randint(0, 60))
+        )
+        event_datetime = datetime.combine(
+            base_date,
+            time(int(hour), int(np.random.randint(0, 60)), 0)
+        )
         
         device = np.random.choice(devices, p=device_weights)
         browser = np.random.choice(browsers, p=browser_weights)
