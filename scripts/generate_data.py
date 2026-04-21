@@ -1,35 +1,36 @@
 """
-Synthetic data generation for e-commerce analytics pipeline.
-
-This module generates fully synthetic and internally consistent data using
-Faker, Pandas, and NumPy. All data is generated locally with no external
-services required.
-
-Author: Dorra Trabelsi
-Date: 2026-04-21
-Cost: $0 (local generation only)
-
-Volume targets:
-- NB_CLIENTS = 2,000
-- NB_PRODUCTS = 50
-- NB_ORDERS = 15,000
-- NB_INCIDENTS = 3,000
-- NB_SESSIONS = 50,000
-- DATE_RANGE = 2022-01-01 to 2024-06-01
+generate_data.py
+Purpose : Generate fully synthetic, internally consistent e-commerce datasets
+          for the GCP decisional pipeline project.
+Author  : ProjetCloud Team
+Date    : 2024-06-01
+Cost    : $0 — runs entirely locally, no GCP resources used.
 """
 
 import os
-import sys
-import json
+import re
+import random
 import logging
-from datetime import datetime, timedelta, time
+import argparse
 from pathlib import Path
+from datetime import datetime, timedelta, time
 
 import numpy as np
 import pandas as pd
 from faker import Faker
 
-# Configuration
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "msg": "%(message)s"}',
+)
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 NB_CLIENTS = 2_000
 NB_PRODUCTS = 50
 NB_ORDERS = 15_000
@@ -37,262 +38,366 @@ NB_INCIDENTS = 3_000
 NB_SESSIONS = 50_000
 DATE_START = datetime(2022, 1, 1)
 DATE_END = datetime(2024, 6, 1)
+RANDOM_SEED = 42
 
-# Output directory
-DATA_DIR = Path("data/raw")
-DOCS_DIR = Path("docs")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DOCS_DIR.mkdir(parents=True, exist_ok=True)
+RAW_DIR = Path(__file__).parent.parent / "data" / "raw"
+DOCS_DIR = Path(__file__).parent.parent / "docs"
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+fake = Faker(["fr_FR", "en_CA"])
+Faker.seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
+random.seed(RANDOM_SEED)
 
-# Initialize Faker
-fake = Faker("fr_FR")
-np.random.seed(42)
+# ---------------------------------------------------------------------------
+# Country / city mapping
+# ---------------------------------------------------------------------------
+COUNTRY_CITIES: dict[str, list[str]] = {
+    "France": ["Paris", "Lyon", "Marseille", "Toulouse", "Bordeaux", "Nantes", "Lille", "Strasbourg", "Rennes", "Montpellier"],
+    "Belgium": ["Brussels", "Antwerp", "Ghent", "Liège", "Bruges", "Namur"],
+    "Switzerland": ["Zurich", "Geneva", "Bern", "Basel", "Lausanne", "Lucerne"],
+    "Canada": ["Montreal", "Toronto", "Vancouver", "Calgary", "Ottawa", "Quebec City"],
+    "Morocco": ["Casablanca", "Rabat", "Marrakech", "Fès", "Agadir", "Tanger"],
+    "Tunisia": ["Tunis", "Sfax", "Sousse", "Kairouan", "Bizerte"],
+    "Senegal": ["Dakar", "Thiès", "Saint-Louis", "Ziguinchor", "Kaolack"],
+}
+
+COUNTRY_WEIGHTS = [0.55, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]
+COUNTRIES = list(COUNTRY_CITIES.keys())
+
+COUNTRY_REGION_MAP: dict[str, str] = {
+    "France": "Europe-West",
+    "Belgium": "Europe-West",
+    "Switzerland": "Europe-West",
+    "Canada": "North America",
+    "Morocco": "Africa-North",
+    "Tunisia": "Africa-North",
+    "Senegal": "Africa-West",
+}
+
+# ---------------------------------------------------------------------------
+# Category / price ranges
+# ---------------------------------------------------------------------------
+CATEGORY_PRICE: dict[str, tuple[float, float]] = {
+    "Electronics": (99.99, 499.99),
+    "Audio": (49.99, 299.99),
+    "Office Furniture": (79.99, 799.99),
+    "Accessories": (9.99, 49.99),
+    "Storage": (19.99, 149.99),
+}
+CATEGORIES = list(CATEGORY_PRICE.keys())
+
+# ---------------------------------------------------------------------------
+# Product names per category
+# ---------------------------------------------------------------------------
+PRODUCT_NAMES: dict[str, list[str]] = {
+    "Electronics": [
+        "Laptop Pro 15", "Tablet X10", "Smartphone Z5", "Smart TV 55\"",
+        "Desktop Mini PC", "Chromebook Air", "Gaming Laptop RTX", "E-Reader Pro",
+        "Portable Projector", "Wireless Router 6E",
+    ],
+    "Audio": [
+        "Wireless Headphones ANC", "Bluetooth Speaker Max", "Studio Earbuds Pro",
+        "Soundbar 2.1", "Vinyl Record Player", "Podcast Microphone USB",
+        "Hi-Fi Amplifier", "Portable DAC",
+    ],
+    "Office Furniture": [
+        "Ergonomic Chair Pro", "Standing Desk Electric", "Monitor Arm Dual",
+        "Filing Cabinet 3-Drawer", "LED Desk Lamp", "Whiteboard 120cm",
+        "Bookshelf Oak", "Cable Management Kit",
+    ],
+    "Accessories": [
+        "USB-C Hub 7-in-1", "Laptop Sleeve 15\"", "Mechanical Keyboard TKL",
+        "Wireless Mouse Compact", "Screen Cleaning Kit", "HDMI Cable 2.1 2m",
+        "Webcam 1080p", "Laptop Stand Aluminum", "Mouse Pad XL",
+        "USB-C Charger 65W",
+    ],
+    "Storage": [
+        "External SSD 1TB", "NAS Drive 4TB", "USB Flash Drive 128GB",
+        "SD Card 256GB UHS-II", "External HDD 2TB", "RAID Enclosure 4-bay",
+        "M.2 SSD 512GB", "Cloud Backup Dongle",
+    ],
+}
 
 
-# ============================================================================
-# Dataset 1: CLIENTS
-# ============================================================================
+def _rand_date(start: datetime, end: datetime) -> datetime:
+    delta = end - start
+    return start + timedelta(seconds=random.randint(0, int(delta.total_seconds())))
 
-def generate_clients():
-    """Generate client master data with realistic demographics."""
-    logger.info(f"Generating {NB_CLIENTS} clients...")
-    
-    # Country-to-cities mapping
-    cities_by_country = {
-        "France": ["Paris", "Lyon", "Marseille", "Toulouse", "Nice", "Nantes", "Bordeaux", "Lille"],
-        "Belgium": ["Brussels", "Antwerp", "Ghent", "Charleroi", "Liège"],
-        "Switzerland": ["Zurich", "Geneva", "Basel", "Bern", "Lucerne"],
-        "Canada": ["Toronto", "Montreal", "Vancouver", "Calgary", "Ottawa"],
-        "Morocco": ["Casablanca", "Rabat", "Marrakesh", "Fez", "Tangier"],
-        "Tunisia": ["Tunis", "Sfax", "Sousse", "Kairouan", "Gafsa"],
-        "Senegal": ["Dakar", "Kaolack", "Saint-Louis", "Thiès", "Tambacounda"],
-    }
-    
-    # Country distribution (weighted)
-    countries = np.random.choice(
-        list(cities_by_country.keys()),
-        size=NB_CLIENTS,
-        p=[0.55, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]
-    )
-    
-    clients = []
-    for i in range(NB_CLIENTS):
-        client_id = f"C{i+1:04d}"
-        country = countries[i]
-        city = np.random.choice(cities_by_country[country])
-        gender = np.random.choice(["M", "F", "Non-binary"], p=[0.48, 0.48, 0.04])
-        registration_date = fake.date_between_dates(date_start=DATE_START, date_end=DATE_END)
-        
-        # Determine segment based on registration date (last 6 months = "new")
-        six_months_before_end = DATE_END - timedelta(days=180)
-        segment = "new" if pd.to_datetime(registration_date) >= six_months_before_end else "regular"
-        
-        clients.append({
-            "client_id": client_id,
+
+def _inject_nulls(df: pd.DataFrame, rate: float = 0.02) -> pd.DataFrame:
+    """Inject random NULL values on non-key columns."""
+    key_cols = {c for c in df.columns if c.endswith("_id")}
+    non_key = [c for c in df.columns if c not in key_cols]
+    total_cells = len(df) * len(non_key)
+    n_nulls = int(total_cells * rate)
+    for _ in range(n_nulls):
+        row = random.randint(0, len(df) - 1)
+        col = random.choice(non_key)
+        df.at[row, col] = None
+    return df
+
+
+def _inject_duplicates(df: pd.DataFrame, rate: float = 0.01) -> pd.DataFrame:
+    """Inject 1% full duplicate rows."""
+    n = max(1, int(len(df) * rate))
+    sample = df.sample(n=n, replace=True, random_state=RANDOM_SEED)
+    return pd.concat([df, sample], ignore_index=True)
+
+
+def _mangle_emails(df: pd.DataFrame, col: str = "email", rate: float = 0.005) -> pd.DataFrame:
+    """Replace '@' with 'at' in 0.5% of emails."""
+    mask = np.random.random(len(df)) < rate
+    df.loc[mask, col] = df.loc[mask, col].str.replace("@", "at", regex=False)
+    return df
+
+
+def _mangle_ages(df: pd.DataFrame, col: str = "age", rate: float = 0.003) -> pd.DataFrame:
+    """Set age below 10 or above 100 in 0.3% of rows."""
+    mask = np.random.random(len(df)) < rate
+    idx = df[mask].index
+    for i in idx:
+        df.at[i, col] = random.choice([random.randint(1, 9), random.randint(101, 120)])
+    return df
+
+
+# ---------------------------------------------------------------------------
+# STEP 1: Generate clients
+# ---------------------------------------------------------------------------
+def generate_clients() -> pd.DataFrame:
+    log.info("Generating %d clients...", NB_CLIENTS)
+    rows = []
+    six_months_before_end = DATE_END - timedelta(days=182)
+
+    for i in range(1, NB_CLIENTS + 1):
+        country = random.choices(COUNTRIES, weights=COUNTRY_WEIGHTS, k=1)[0]
+        city = random.choice(COUNTRY_CITIES[country])
+        reg_date = _rand_date(DATE_START, DATE_END)
+        gender = random.choices(["M", "F", "Non-binary"], weights=[0.48, 0.48, 0.04], k=1)[0]
+        age = random.randint(18, 75)
+        segment = "new" if reg_date >= six_months_before_end else "regular"
+
+        rows.append({
+            "client_id": f"C{i:04d}",
             "last_name": fake.last_name(),
             "first_name": fake.first_name(),
             "email": fake.email(),
-            "age": np.random.randint(18, 75),
+            "age": age,
             "gender": gender,
             "country": country,
             "city": city,
             "phone": fake.phone_number(),
-            "registration_date": registration_date,
+            "registration_date": reg_date,
             "segment": segment,
         })
-    
-    df = pd.DataFrame(clients)
-    df.to_csv(DATA_DIR / "clients.csv", index=False)
-    logger.info(f"✓ Generated {len(df)} clients -> data/raw/clients.csv")
+
+    df = pd.DataFrame(rows)
+    df = _mangle_emails(df)
+    df = _mangle_ages(df)
+    df = _inject_nulls(df)
+    df = _inject_duplicates(df)
+    log.info("Clients generated: %d rows (with duplicates/nulls injected)", len(df))
     return df
 
 
-# ============================================================================
-# Dataset 2: PRODUCTS
-# ============================================================================
+# ---------------------------------------------------------------------------
+# STEP 2: Generate products
+# ---------------------------------------------------------------------------
+def generate_products() -> pd.DataFrame:
+    log.info("Generating %d products...", NB_PRODUCTS)
+    rows = []
+    used_names: set[str] = set()
+    product_idx = 1
 
-def generate_products():
-    """Generate product catalog with categories and pricing."""
-    logger.info(f"Generating {NB_PRODUCTS} products...")
-    
-    categories = ["Electronics", "Audio", "Office Furniture", "Accessories", "Storage"]
-    
-    # Price ranges by category
-    price_ranges = {
-        "Electronics": (99.99, 499.99),
-        "Audio": (29.99, 299.99),
-        "Office Furniture": (49.99, 399.99),
-        "Accessories": (9.99, 49.99),
-        "Storage": (19.99, 149.99),
-    }
-    
-    products = []
-    for i in range(NB_PRODUCTS):
-        product_id = f"P{i+1:03d}"
-        category = np.random.choice(categories)
-        min_price, max_price = price_ranges[category]
-        
-        products.append({
-            "product_id": product_id,
-            "product_name": fake.word().title() + " " + np.random.choice(["Pro", "Ultra", "Deluxe", "Basic"]),
-            "category": category,
-            "unit_price": round(np.random.uniform(min_price, max_price), 2),
-            "stock": np.random.randint(0, 500),
+    for category, names in PRODUCT_NAMES.items():
+        for name in names:
+            if product_idx > NB_PRODUCTS:
+                break
+            base_price_min, base_price_max = CATEGORY_PRICE[category]
+            unit_price = round(random.uniform(base_price_min, base_price_max), 2)
+            rows.append({
+                "product_id": f"P{product_idx:03d}",
+                "product_name": name,
+                "category": category,
+                "unit_price": unit_price,
+                "stock": random.randint(0, 500),
+            })
+            product_idx += 1
+
+    # Fill remaining slots if needed
+    while product_idx <= NB_PRODUCTS:
+        cat = random.choice(CATEGORIES)
+        base_price_min, base_price_max = CATEGORY_PRICE[cat]
+        rows.append({
+            "product_id": f"P{product_idx:03d}",
+            "product_name": f"Generic Product {product_idx}",
+            "category": cat,
+            "unit_price": round(random.uniform(base_price_min, base_price_max), 2),
+            "stock": random.randint(0, 500),
         })
-    
-    df = pd.DataFrame(products)
-    df.to_csv(DATA_DIR / "products.csv", index=False)
-    logger.info(f"✓ Generated {len(df)} products -> data/raw/products.csv")
+        product_idx += 1
+
+    df = pd.DataFrame(rows)
+    log.info("Products generated: %d rows", len(df))
     return df
 
 
-# ============================================================================
-# Dataset 3: ORDERS and ORDER_ITEMS
-# ============================================================================
+# ---------------------------------------------------------------------------
+# STEP 3: Generate orders + order_items
+# ---------------------------------------------------------------------------
+def generate_orders_and_items(
+    clients_df: pd.DataFrame,
+    products_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    log.info("Generating %d orders and items...", NB_ORDERS)
 
-def generate_orders_and_items(clients_df, products_df):
-    """Generate orders with items and maintain FK relationships."""
-    logger.info(f"Generating {NB_ORDERS} orders with items...")
-    
-    orders = []
-    order_items = []
-    
-    countries_to_regions = {
-        "France": "EU-FR",
-        "Belgium": "EU-BE",
-        "Switzerland": "EU-CH",
-        "Canada": "NA-CA",
-        "Morocco": "AF-MA",
-        "Tunisia": "AF-TN",
-        "Senegal": "AF-SN",
-    }
-    
-    statuses = ["Delivered", "Pending", "Cancelled", "Refunded"]
-    status_weights = [0.65, 0.20, 0.10, 0.05]
-    payment_methods = ["Credit card", "PayPal", "Bank transfer", "Cheque"]
-    payment_weights = [0.60, 0.25, 0.10, 0.05]
-    
-    item_id_counter = 1
-    
-    for i in range(NB_ORDERS):
-        order_id = f"ORD{i+1:05d}"
-        
-        # Select random client
-        client = clients_df.sample(1).iloc[0]
-        client_id = client["client_id"]
-        
-        # Ensure order_date is after registration
-        reg_date = pd.to_datetime(client["registration_date"])
-        order_date = fake.date_between_dates(
-            date_start=reg_date,
-            date_end=DATE_END
-        )
-        
-        status = np.random.choice(statuses, p=status_weights)
-        payment_method = np.random.choice(payment_methods, p=payment_weights)
-        region = countries_to_regions[client["country"]]
-        
-        # Generate order items (1-4 items with Poisson distribution)
-        num_items = min(4, max(1, np.random.poisson(1.5)))
-        total_amount = 0
-        
-        for _ in range(num_items):
-            product = products_df.sample(1).iloc[0]
-            product_id = product["product_id"]
-            quantity = np.random.randint(1, 5)
-            # Apply up to 5% discount
-            discount_factor = np.random.uniform(0.95, 1.0)
-            unit_price = round(product["unit_price"] * discount_factor, 2)
-            item_total = round(quantity * unit_price, 2)
-            total_amount += item_total
-            
-            order_items.append({
-                "item_id": item_id_counter,
+    # Build lookup: client_id → registration_date, country
+    client_info: dict[str, tuple[datetime, str]] = {}
+    for _, row in clients_df.iterrows():
+        cid = row["client_id"]
+        reg = row["registration_date"]
+        if pd.isna(reg):
+            reg = DATE_START
+        if isinstance(reg, str):
+            try:
+                reg = datetime.fromisoformat(reg)
+            except Exception:
+                reg = DATE_START
+        client_info[cid] = (reg, row.get("country", "France"))
+
+    # Only use real client IDs (deduped, no NaN)
+    valid_clients = clients_df["client_id"].dropna().unique().tolist()
+    product_ids = products_df["product_id"].tolist()
+    product_prices = dict(zip(products_df["product_id"], products_df["unit_price"]))
+
+    order_rows = []
+    item_rows = []
+    item_id = 1
+
+    for i in range(1, NB_ORDERS + 1):
+        order_id = f"ORD{i:05d}"
+        client_id = random.choice(valid_clients)
+        reg_date, country = client_info.get(client_id, (DATE_START, "France"))
+        order_date = _rand_date(reg_date, DATE_END)
+        status = random.choices(
+            ["Delivered", "Pending", "Cancelled", "Refunded"],
+            weights=[0.65, 0.20, 0.10, 0.05],
+            k=1,
+        )[0]
+        payment = random.choices(
+            ["Credit card", "PayPal", "Bank transfer", "Cheque"],
+            weights=[0.60, 0.25, 0.10, 0.05],
+            k=1,
+        )[0]
+        region = COUNTRY_REGION_MAP.get(country, "Other")
+
+        # Items: Poisson(λ=1.5) capped at [1,4]
+        n_items = min(max(1, np.random.poisson(1.5)), 4)
+        order_total = 0.0
+        chosen_products = random.sample(product_ids, min(n_items, len(product_ids)))
+
+        for pid in chosen_products:
+            base = product_prices[pid]
+            discount = random.uniform(-0.05, 0.05)
+            unit_price = round(base * (1 + discount), 2)
+            qty = random.randint(1, 4)
+            item_total = round(unit_price * qty, 2)
+            order_total += item_total
+            item_rows.append({
+                "item_id": f"IT{item_id:06d}",
                 "order_id": order_id,
-                "product_id": product_id,
-                "quantity": quantity,
+                "product_id": pid,
+                "quantity": qty,
                 "unit_price": unit_price,
             })
-            item_id_counter += 1
-        
-        orders.append({
+            item_id += 1
+
+        order_rows.append({
             "order_id": order_id,
             "client_id": client_id,
             "order_date": order_date,
             "status": status,
-            "payment_method": payment_method,
+            "payment_method": payment,
             "region": region,
-            "total_amount": round(total_amount, 2),
+            "total_amount": round(order_total, 2),
         })
-    
-    orders_df = pd.DataFrame(orders)
-    items_df = pd.DataFrame(order_items)
-    
-    orders_df.to_csv(DATA_DIR / "orders.csv", index=False)
-    items_df.to_csv(DATA_DIR / "order_items.csv", index=False)
-    
-    logger.info(f"✓ Generated {len(orders_df)} orders -> data/raw/orders.csv")
-    logger.info(f"✓ Generated {len(items_df)} items -> data/raw/order_items.csv")
-    
+
+    orders_df = pd.DataFrame(order_rows)
+    items_df = pd.DataFrame(item_rows)
+    orders_df = _inject_nulls(orders_df)
+    orders_df = _inject_duplicates(orders_df)
+    items_df = _inject_nulls(items_df)
+    log.info("Orders: %d rows, Items: %d rows", len(orders_df), len(items_df))
     return orders_df, items_df
 
 
-# ============================================================================
-# Dataset 4: INCIDENTS
-# ============================================================================
+# ---------------------------------------------------------------------------
+# STEP 4: Generate incidents
+# ---------------------------------------------------------------------------
+def generate_incidents(
+    clients_df: pd.DataFrame,
+    orders_df: pd.DataFrame,
+) -> pd.DataFrame:
+    log.info("Generating %d incidents...", NB_INCIDENTS)
+    valid_clients = clients_df["client_id"].dropna().unique().tolist()
+    client_reg: dict[str, datetime] = {}
+    for _, row in clients_df.iterrows():
+        cid = row["client_id"]
+        reg = row["registration_date"]
+        if pd.isna(reg):
+            reg = DATE_START
+        if isinstance(reg, str):
+            try:
+                reg = datetime.fromisoformat(reg)
+            except Exception:
+                reg = DATE_START
+        client_reg[cid] = reg
 
-def generate_incidents(clients_df, orders_df):
-    """Generate support incidents with relationships."""
-    logger.info(f"Generating {NB_INCIDENTS} incidents...")
-    
-    categories = ["Payment", "Delivery", "Defective product", "Login", "Customer service"]
-    category_weights = [0.25, 0.35, 0.20, 0.10, 0.10]
-    statuses = ["Resolved", "In progress", "Escalated", "Closed"]
-    status_weights = [0.60, 0.25, 0.10, 0.05]
-    priorities = ["Low", "Medium", "High", "Critical"]
-    priority_weights = [0.30, 0.40, 0.20, 0.10]
-    
-    incidents = []
-    
-    for i in range(NB_INCIDENTS):
-        incident_id = f"INC{i+1:04d}"
-        
-        # Select random client
-        client = clients_df.sample(1).iloc[0]
-        client_id = client["client_id"]
-        reg_date = pd.to_datetime(client["registration_date"])
-        
-        # Report date must be after registration
-        report_date = fake.date_between_dates(date_start=reg_date, date_end=DATE_END)
-        
-        category = np.random.choice(categories, p=category_weights)
-        status = np.random.choice(statuses, p=status_weights)
-        priority = np.random.choice(priorities, p=priority_weights)
-        
-        # Link to order 70% of the time
+    # Build client → list of order_ids
+    client_orders: dict[str, list[str]] = {}
+    for _, row in orders_df.iterrows():
+        cid = row.get("client_id")
+        oid = row.get("order_id")
+        if pd.isna(cid) or pd.isna(oid):
+            continue
+        client_orders.setdefault(cid, []).append(oid)
+
+    rows = []
+    for i in range(1, NB_INCIDENTS + 1):
+        client_id = random.choice(valid_clients)
+        reg_date = client_reg.get(client_id, DATE_START)
+        report_date = _rand_date(reg_date, DATE_END)
+        category = random.choices(
+            ["Payment", "Delivery", "Defective product", "Login", "Customer service"],
+            weights=[0.25, 0.35, 0.20, 0.10, 0.10],
+            k=1,
+        )[0]
+        status = random.choices(
+            ["Resolved", "In progress", "Escalated", "Closed"],
+            weights=[0.60, 0.25, 0.10, 0.05],
+            k=1,
+        )[0]
+        priority = random.choices(
+            ["Low", "Medium", "High", "Critical"],
+            weights=[0.30, 0.40, 0.20, 0.10],
+            k=1,
+        )[0]
+
+        # 70% chance of linking to a real order
         order_id = None
-        if np.random.random() < 0.70:
-            client_orders = orders_df[orders_df["client_id"] == client_id]
-            if len(client_orders) > 0:
-                order_id = client_orders.sample(1).iloc[0]["order_id"]
-        
-        # Resolution time
-        resolution_time_h = None
-        if status != "In progress":
-            if priority == "Critical":
-                resolution_time_h = np.random.randint(1, 24)  # Under 24h
-            else:
-                resolution_time_h = np.random.randint(1, 168)  # 1-7 days
-        
-        incidents.append({
-            "incident_id": incident_id,
+        if random.random() < 0.70:
+            client_order_list = client_orders.get(client_id, [])
+            if client_order_list:
+                order_id = random.choice(client_order_list)
+
+        if status == "In progress":
+            resolution_time_h = None
+        elif priority == "Critical":
+            resolution_time_h = random.randint(1, 24)
+        else:
+            resolution_time_h = random.randint(1, 168)
+
+        rows.append({
+            "incident_id": f"INC{i:04d}",
             "client_id": client_id,
             "report_date": report_date,
             "category": category,
@@ -301,268 +406,174 @@ def generate_incidents(clients_df, orders_df):
             "priority": priority,
             "resolution_time_h": resolution_time_h,
         })
-    
-    df = pd.DataFrame(incidents)
-    df.to_csv(DATA_DIR / "incidents.csv", index=False)
-    logger.info(f"✓ Generated {len(df)} incidents -> data/raw/incidents.csv")
+
+    df = pd.DataFrame(rows)
+    df = _inject_nulls(df)
+    df = _inject_duplicates(df)
+    log.info("Incidents generated: %d rows", len(df))
     return df
 
 
-# ============================================================================
-# Dataset 5: PAGE_VIEWS / SESSIONS
-# ============================================================================
+# ---------------------------------------------------------------------------
+# STEP 5: Generate page_views
+# ---------------------------------------------------------------------------
+def generate_page_views(clients_df: pd.DataFrame) -> pd.DataFrame:
+    log.info("Generating %d page views...", NB_SESSIONS)
+    valid_clients = clients_df["client_id"].dropna().unique().tolist()
 
-def generate_page_views(clients_df):
-    """Generate session and page view data."""
-    logger.info(f"Generating {NB_SESSIONS} sessions with page views...")
-    
-    pages = [
-        "/home", "/products", "/cart", "/checkout", "/profile", 
-        "/support", "/deals", "/category/electronics", "/category/audio"
+    PAGES = [
+        "/home", "/products", "/cart", "/checkout", "/profile",
+        "/support", "/deals", "/category/electronics", "/category/audio",
     ]
-    page_weights = [0.20, 0.25, 0.10, 0.08, 0.07, 0.05, 0.05, 0.12, 0.08]
-    
-    # Duration by page (seconds)
-    duration_by_page = {
+    PAGE_WEIGHTS = [0.20, 0.25, 0.15, 0.10, 0.05, 0.05, 0.08, 0.07, 0.05]
+
+    DURATION_MAP: dict[str, tuple[int, int]] = {
         "/home": (10, 60),
         "/products": (30, 300),
-        "/cart": (20, 120),
+        "/cart": (20, 180),
         "/checkout": (60, 600),
-        "/profile": (15, 90),
-        "/support": (30, 180),
-        "/deals": (20, 150),
-        "/category/electronics": (40, 250),
-        "/category/audio": (40, 250),
+        "/profile": (15, 120),
+        "/support": (30, 240),
+        "/deals": (20, 180),
+        "/category/electronics": (30, 300),
+        "/category/audio": (30, 300),
     }
-    
-    devices = ["Mobile", "Desktop", "Tablet"]
-    device_weights = [0.55, 0.40, 0.05]
-    
-    browsers = ["Chrome", "Safari", "Firefox", "Edge"]
-    browser_weights = [0.60, 0.20, 0.12, 0.08]
-    
-    traffic_sources = ["Direct", "Google", "Instagram", "Email", "Referral"]
-    traffic_weights = [0.30, 0.35, 0.15, 0.12, 0.08]
-    
-    sessions = []
-    
-    for i in range(NB_SESSIONS):
-        session_id = f"S{i+1:06d}"
-        
-        # Client exists in 80% of cases
-        if np.random.random() < 0.80:
-            client_id = clients_df.sample(1).iloc[0]["client_id"]
+
+    rows = []
+    for i in range(1, NB_SESSIONS + 1):
+        # Bimodal time distribution: peak at 12-14 and 19-22
+        base_date = _rand_date(DATE_START, DATE_END).date()
+        if random.random() < 0.5:
+            hour = random.randint(12, 13)
         else:
-            client_id = None  # Anonymous visitor
-        
-        page = np.random.choice(pages, p=page_weights)
-        min_dur, max_dur = duration_by_page[page]
-        duration_seconds = np.random.randint(min_dur, max_dur)
-        
-        # Bimodal distribution: peaks at 12-14:00 and 19-22:00
-        hour = np.random.choice([13, 20], p=[0.5, 0.5])
-        hour += np.random.randint(-2, 3)  # Add variance
-        hour = max(0, min(23, hour))
-        
-        base_date = fake.date_between_dates(
-            date_start=DATE_START,
-            date_end=DATE_END
-        )
-        event_datetime = datetime.combine(
-            base_date,
-            time(int(hour), int(np.random.randint(0, 60)), 0)
-        )
-        
-        device = np.random.choice(devices, p=device_weights)
-        browser = np.random.choice(browsers, p=browser_weights)
-        traffic_source = np.random.choice(traffic_sources, p=traffic_weights)
-        
-        sessions.append({
-            "session_id": session_id,
+            hour = random.randint(19, 21)
+        minute = random.randint(0, 59)
+        second = random.randint(0, 59)
+        event_dt = datetime.combine(base_date, time(int(hour), int(minute), int(second)))
+
+        page = random.choices(PAGES, weights=PAGE_WEIGHTS, k=1)[0]
+        dur_min, dur_max = DURATION_MAP.get(page, (10, 60))
+        duration_s = random.randint(dur_min, dur_max)
+
+        # 80% authenticated
+        client_id = random.choice(valid_clients) if random.random() < 0.80 else None
+
+        rows.append({
+            "session_id": f"S{i:06d}",
             "client_id": client_id,
             "page": page,
-            "event_datetime": event_datetime,
-            "duration_seconds": duration_seconds,
-            "device": device,
-            "browser": browser,
-            "traffic_source": traffic_source,
+            "event_datetime": event_dt,
+            "duration_seconds": duration_s,
+            "device": random.choices(["Mobile", "Desktop", "Tablet"], weights=[0.55, 0.40, 0.05], k=1)[0],
+            "browser": random.choices(["Chrome", "Safari", "Firefox", "Edge"], weights=[0.60, 0.20, 0.12, 0.08], k=1)[0],
+            "traffic_source": random.choices(
+                ["Direct", "Google", "Instagram", "Email", "Referral"],
+                weights=[0.30, 0.35, 0.15, 0.12, 0.08],
+                k=1,
+            )[0],
         })
-    
-    df = pd.DataFrame(sessions)
-    df.to_csv(DATA_DIR / "page_views.csv", index=False)
-    logger.info(f"✓ Generated {len(df)} sessions -> data/raw/page_views.csv")
+
+    df = pd.DataFrame(rows)
+    df = _inject_nulls(df)
+    df = _inject_duplicates(df)
+    log.info("Page views generated: %d rows", len(df))
     return df
 
 
-# ============================================================================
-# INJECT DATA QUALITY ISSUES (to be cleaned in STEP 2)
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
+def build_report(
+    clients_df: pd.DataFrame,
+    products_df: pd.DataFrame,
+    orders_df: pd.DataFrame,
+    items_df: pd.DataFrame,
+    incidents_df: pd.DataFrame,
+    page_views_df: pd.DataFrame,
+) -> str:
+    lines: list[str] = [
+        "=" * 60,
+        "DATA GENERATION REPORT",
+        f"Generated at: {datetime.now().isoformat()}",
+        "=" * 60,
+        "",
+        "--- Row counts ---",
+        f"clients.csv       : {len(clients_df):>8,} rows",
+        f"products.csv      : {len(products_df):>8,} rows",
+        f"orders.csv        : {len(orders_df):>8,} rows",
+        f"order_items.csv   : {len(items_df):>8,} rows",
+        f"incidents.csv     : {len(incidents_df):>8,} rows",
+        f"page_views.csv    : {len(page_views_df):>8,} rows",
+        "",
+        "--- Country distribution (clients) ---",
+    ]
 
-def inject_data_quality_issues():
-    """Inject intentional data quality issues."""
-    logger.info("Injecting intentional data quality issues...")
-    
-    # Load all datasets
-    clients_df = pd.read_csv(DATA_DIR / "clients.csv")
-    products_df = pd.read_csv(DATA_DIR / "products.csv")
-    orders_df = pd.read_csv(DATA_DIR / "orders.csv")
-    page_views_df = pd.read_csv(DATA_DIR / "page_views.csv")
-    
-    # 1. Inject 2% random NULLs on non-key columns
-    for df_name, df in [("clients", clients_df), ("products", products_df)]:
-        for col in df.columns[1:]:  # Skip ID columns
-            null_indices = np.random.choice(df.index, size=int(0.02 * len(df)), replace=False)
-            df.loc[null_indices, col] = None
-    
-    # 2. Inject 1% duplicate rows
-    for df in [clients_df, products_df]:
-        dup_count = int(0.01 * len(df))
-        dup_rows = df.sample(dup_count)
-        df = pd.concat([df, dup_rows], ignore_index=True)
-    
-    # 3. Replace "@" with "at" in 0.5% of emails
-    email_indices = np.random.choice(
-        clients_df.index, 
-        size=int(0.005 * len(clients_df)), 
-        replace=False
-    )
-    clients_df.loc[email_indices, "email"] = \
-        clients_df.loc[email_indices, "email"].str.replace("@", "at", n=1)
-    
-    # 4. Set age < 10 or > 100 in 0.3% of client rows
-    age_indices = np.random.choice(
-        clients_df.index, 
-        size=int(0.003 * len(clients_df)), 
-        replace=False
-    )
-    for idx in age_indices:
-        clients_df.loc[idx, "age"] = np.random.choice([5, 150])
-    
-    # Save modified datasets
-    clients_df.to_csv(DATA_DIR / "clients.csv", index=False)
-    products_df.to_csv(DATA_DIR / "products.csv", index=False)
-    
-    logger.info("✓ Data quality issues injected")
+    country_counts = clients_df["country"].value_counts(dropna=True)
+    for country, count in country_counts.items():
+        pct = count / len(clients_df) * 100
+        lines.append(f"  {country:<20}: {count:>5,} ({pct:.1f}%)")
 
+    # Total simulated revenue
+    total_revenue = orders_df["total_amount"].sum(skipna=True)
+    lines.append("")
+    lines.append(f"--- Total simulated revenue : {total_revenue:>12,.2f} EUR ---")
 
-# ============================================================================
-# GENERATION REPORT
-# ============================================================================
+    # Delivery rate
+    delivered = (orders_df["status"] == "Delivered").sum()
+    total_ord = len(orders_df)
+    lines.append(f"--- Delivery rate           : {delivered:>6,} / {total_ord:>6,} ({delivered/total_ord*100:.1f}%) ---")
 
-def generate_report(clients_df, products_df, orders_df, items_df, incidents_df, page_views_df):
-    """Generate a comprehensive data generation report."""
-    logger.info("Generating data generation report...")
-    
-    # Calculate statistics
-    total_revenue = orders_df["total_amount"].sum()
-    delivered_count = (orders_df["status"] == "Delivered").sum()
-    delivery_rate = (delivered_count / len(orders_df)) * 100
-    
     # Top 5 products by revenue
-    product_revenue = items_df.groupby("product_id").apply(
-        lambda x: (x["quantity"] * x["unit_price"]).sum()
-    ).sort_values(ascending=False).head(5)
-    
-    # Country distribution
-    country_dist = clients_df["country"].value_counts()
-    
-    report = f"""
-================================================================================
-E-COMMERCE ANALYTICS PIPELINE - DATA GENERATION REPORT
-Generated: {datetime.now().isoformat()}
-================================================================================
+    merged = items_df.merge(products_df[["product_id", "product_name"]], on="product_id", how="left")
+    merged["revenue"] = merged["quantity"] * merged["unit_price"]
+    top5 = merged.groupby("product_name")["revenue"].sum().nlargest(5)
+    lines.append("")
+    lines.append("--- Top 5 products by revenue ---")
+    for name, rev in top5.items():
+        lines.append(f"  {name:<35}: {rev:>10,.2f} EUR")
 
-DATASET VOLUMES
-================================================================================
-Clients:           {len(clients_df):,} rows
-Products:          {len(products_df):,} rows
-Orders:            {len(orders_df):,} rows
-Order Items:       {len(items_df):,} rows
-Incidents:         {len(incidents_df):,} rows
-Page Views:        {len(page_views_df):,} rows
-TOTAL:             {len(clients_df) + len(products_df) + len(orders_df) + len(items_df) + len(incidents_df) + len(page_views_df):,} rows
+    lines.append("")
+    lines.append("=" * 60)
+    return "\n".join(lines)
 
-KEY METRICS
-================================================================================
-Total Simulated Revenue:     €{total_revenue:,.2f}
-Orders Delivered:            {delivered_count:,} ({delivery_rate:.1f}%)
-Average Basket Size:         €{orders_df["total_amount"].mean():.2f}
-Orders per Client:           {len(orders_df) / len(clients_df):.2f}
 
-GEOGRAPHIC DISTRIBUTION (CLIENTS)
-================================================================================
-{country_dist.to_string()}
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate synthetic e-commerce data")
+    parser.add_argument("--seed", type=int, default=RANDOM_SEED, help="Random seed")
+    args = parser.parse_args()
 
-TOP 5 PRODUCTS BY REVENUE
-================================================================================
-{product_revenue.to_string()}
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    Faker.seed(args.seed)
 
-DATA QUALITY ISSUES INJECTED
-================================================================================
-- 2% random NULL values on non-key columns
-- 1% full duplicate rows
-- 0.5% malformed emails (@ replaced with "at")
-- 0.3% invalid ages (< 10 or > 100)
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
-DATE RANGE
-================================================================================
-Start Date: {DATE_START.date()}
-End Date:   {DATE_END.date()}
-Duration:   {(DATE_END - DATE_START).days} days
+    clients_df = generate_clients()
+    products_df = generate_products()
+    orders_df, items_df = generate_orders_and_items(clients_df, products_df)
+    incidents_df = generate_incidents(clients_df, orders_df)
+    page_views_df = generate_page_views(clients_df)
 
-COST NOTE
-================================================================================
-Data generation runs entirely on your local machine using Faker, Pandas, and
-NumPy. No GCP resources are consumed. This is 100% free ($0 cost).
+    # Save
+    clients_df.to_csv(RAW_DIR / "clients.csv", index=False)
+    products_df.to_csv(RAW_DIR / "products.csv", index=False)
+    orders_df.to_csv(RAW_DIR / "orders.csv", index=False)
+    items_df.to_csv(RAW_DIR / "order_items.csv", index=False)
+    incidents_df.to_csv(RAW_DIR / "incidents.csv", index=False)
+    page_views_df.to_csv(RAW_DIR / "page_views.csv", index=False)
+    log.info("All datasets saved to %s", RAW_DIR)
 
-================================================================================
-"""
-    
-    # Save report
-    report_file = DOCS_DIR / "data_generation_report.txt"
-    with open(report_file, "w") as f:
-        f.write(report)
-    
-    logger.info(f"✓ Report saved -> docs/data_generation_report.txt")
+    report = build_report(clients_df, products_df, orders_df, items_df, incidents_df, page_views_df)
+    report_path = DOCS_DIR / "data_generation_report.txt"
+    report_path.write_text(report, encoding="utf-8")
+    log.info("Report saved to %s", report_path)
+
     print(report)
 
 
-# ============================================================================
-# MAIN
-# ============================================================================
-
-def main():
-    """Execute data generation pipeline."""
-    try:
-        logger.info("=" * 80)
-        logger.info("E-COMMERCE ANALYTICS PIPELINE - DATA GENERATION")
-        logger.info(f"Target Volume: {NB_CLIENTS} clients, {NB_ORDERS} orders, {NB_SESSIONS} sessions")
-        logger.info("=" * 80)
-        
-        # Generate datasets
-        clients_df = generate_clients()
-        products_df = generate_products()
-        orders_df, items_df = generate_orders_and_items(clients_df, products_df)
-        incidents_df = generate_incidents(clients_df, orders_df)
-        page_views_df = generate_page_views(clients_df)
-        
-        # Inject quality issues
-        inject_data_quality_issues()
-        
-        # Generate report
-        generate_report(clients_df, products_df, orders_df, items_df, incidents_df, page_views_df)
-        
-        logger.info("=" * 80)
-        logger.info("✓ Data generation complete!")
-        logger.info(f"  Output directory: {DATA_DIR.absolute()}")
-        logger.info("=" * 80)
-        
-        return 0
-    
-    except Exception as e:
-        logger.error(f"✗ Data generation failed: {str(e)}", exc_info=True)
-        return 1
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
