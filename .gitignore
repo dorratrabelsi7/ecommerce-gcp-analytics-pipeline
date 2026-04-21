@@ -1,0 +1,44 @@
+# Environment variables
+.env
+
+# Data files (raw and cleaned)
+data/raw/
+data/clean/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Logs (if stored locally)
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build and distribution
+build/
+dist/
+*.egg-info/
