@@ -6,6 +6,6 @@ numpy==1.26.4
 google-cloud-bigquery==3.17.0
 google-cloud-storage==2.14.0
 google-cloud-pubsub==2.19.0
-apache-beam==2.54.0
 python-dotenv==1.0.0
 functions-framework==3.5.0
+# Apache Beam installed separately to avoid grpcio-tools build issues
