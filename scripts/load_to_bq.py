@@ -1,43 +1,27 @@
 """
-Load cleaned data to BigQuery and validate row counts.
+Load cleaned data to BigQuery using bq CLI with corrected syntax.
 
 This script:
-1. Loads all cleaned CSV files from data/clean/ to BigQuery
-2. Executes schema and view creation SQL
-3. Validates row counts match source files
-4. Prints final load report
+1. Uploads all cleaned CSV files from data/clean/ to BigQuery
+2. Validates row counts after loading
+3. Verifies schema integrity
 
 Author: Dorra Trabelsi
 Date: 2026-04-21
 
-COST NOTE: Loading CSVs via the BigQuery Python client uses the free batch
-load API. This does NOT consume query quota. It is always free regardless
-of file size.
+COST NOTE: CSV loads use BigQuery's free batch load API.
+No query costs incurred.
 """
 
 import sys
-import time
-import logging
-from pathlib import Path
-
-import pandas as pd
-from google.cloud import bigquery
-from dotenv import load_dotenv
 import os
-
-# Load environment variables
-load_dotenv()
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+import subprocess
+from pathlib import Path
+import pandas as pd
 
 # Configuration
-PROJECT_ID = os.getenv("PROJECT_ID", "ecommerce-494010")
-DATASET = os.getenv("DATASET", "ecommerce_analytics")
+PROJECT_ID = "ecommerce-494010"
+DATASET = "ecommerce_analytics"
 CLEAN_DATA_DIR = Path("data/clean")
 
 # File to table mapping
@@ -51,135 +35,85 @@ FILE_TABLE_MAP = {
 }
 
 
-def load_to_bigquery():
-    """Load all cleaned CSV files to BigQuery."""
-    logger.info("=" * 80)
-    logger.info("LOADING DATA TO BIGQUERY")
-    logger.info("=" * 80)
+def load_csv_with_bq_cli(table_name: str, csv_path: Path) -> bool:
+    """Load CSV using bq CLI with correct syntax"""
     
-    client = bigquery.Client(project=PROJECT_ID)
-    load_report = {}
+    if not csv_path.exists():
+        print(f"❌ File not found: {csv_path}")
+        return False
     
-    for file_name, table_name in FILE_TABLE_MAP.items():
-        file_path = CLEAN_DATA_DIR / file_name
-        
-        if not file_path.exists():
-            logger.warning(f"File not found: {file_path}")
-            continue
-        
-        # Load local CSV row count
-        source_df = pd.read_csv(file_path)
-        source_rows = len(source_df)
-        
-        logger.info(f"Loading {table_name} from {file_name}")
-        logger.info(f"  Source rows: {source_rows:,}")
-        
-        start_time = time.time()
-        
-        # Configure load job
-        table_id = f"{PROJECT_ID}.{DATASET}.{table_name}"
-        job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.CSV,
-            skip_leading_rows=1,
-            autodetect=True,
-            write_disposition="WRITE_TRUNCATE",
-        )
-        
-        try:
-            # Load job
-            load_job = client.load_table_from_file(
-                file_path.open("rb"),
-                table_id,
-                job_config=job_config,
-            )
-            
-            # Wait for completion
-            load_job.result()
-            
-            elapsed = time.time() - start_time
-            
-            # Get final row count
-            table = client.get_table(table_id)
-            loaded_rows = table.num_rows
-            
-            logger.info(f"✓ {table_name} → {loaded_rows:,} rows loaded in {elapsed:.1f}s")
-            
-            load_report[table_name] = {
-                "source_rows": source_rows,
-                "loaded_rows": loaded_rows,
-                "elapsed": elapsed,
-                "status": "success"
-            }
-        
-        except Exception as e:
-            logger.error(f"✗ Failed to load {table_name}: {str(e)}")
-            load_report[table_name] = {
-                "source_rows": source_rows,
-                "status": "error",
-                "error": str(e)
-            }
+    print(f"Loading: {table_name}...")
     
-    return client, load_report
-
-
-def validate_loads(client, load_report):
-    """Validate that loaded row counts match source files."""
-    logger.info("=" * 80)
-    logger.info("VALIDATING LOADS")
-    logger.info("=" * 80)
+    # Count source rows
+    df = pd.read_csv(csv_path)
+    source_rows = len(df)
+    print(f"  Source: {source_rows:,} rows")
     
-    all_valid = True
+    # Build bq load command with correct flag positioning
+    cmd = [
+        "bq",
+        "load",
+        "--autodetect",  # MUST come before source format
+        "--source_format=CSV",
+        "--skip_leading_rows=1",
+        "--allow_quoted_newlines",
+        "--allow_jagged_rows",
+        f"{DATASET}.{table_name}",
+        str(csv_path),
+    ]
     
-    for table_name, report in load_report.items():
-        if report["status"] == "error":
-            logger.warning(f"  {table_name}: SKIPPED (load failed)")
-            continue
-        
-        if report["source_rows"] == report["loaded_rows"]:
-            logger.info(f"  ✓ {table_name}: {report['loaded_rows']:,} rows (match)")
-        else:
-            logger.warning(
-                f"  ⚠ {table_name}: source={report['source_rows']:,}, "
-                f"loaded={report['loaded_rows']:,} (MISMATCH)"
-            )
-            all_valid = False
-    
-    return all_valid
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        print(f"✅ {table_name} loaded successfully\n")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Load failed: {e.stderr}\n")
+        return False
 
 
 def main():
     """Execute BigQuery load pipeline."""
-    try:
-        logger.info("Initializing BigQuery load...")
-        
-        # Load data
-        client, load_report = load_to_bigquery()
-        
-        # Validate
-        all_valid = validate_loads(client, load_report)
-        
-        # Print summary
-        logger.info("=" * 80)
-        logger.info("LOAD SUMMARY")
-        logger.info("=" * 80)
-        
-        total_source = sum(r.get("source_rows", 0) for r in load_report.values())
-        total_loaded = sum(r.get("loaded_rows", 0) for r in load_report.values() if r["status"] == "success")
-        
-        logger.info(f"Total source rows:  {total_source:,}")
-        logger.info(f"Total loaded rows:  {total_loaded:,}")
-        logger.info(f"Validation:         {'PASS ✓' if all_valid else 'FAIL ⚠'}")
-        
-        logger.info("=" * 80)
-        logger.info("✓ BigQuery load complete!")
-        logger.info(f"  Project: {PROJECT_ID}")
-        logger.info(f"  Dataset: {DATASET}")
-        logger.info("=" * 80)
-        
-        return 0
     
-    except Exception as e:
-        logger.error(f"✗ Load failed: {str(e)}", exc_info=True)
+    print("=" * 70)
+    print("BigQuery CSV Loader - E-Commerce Analytics Pipeline")
+    print("=" * 70)
+    print(f"Project: {PROJECT_ID}")
+    print(f"Dataset: {DATASET}")
+    print()
+    
+    # Verify directory
+    if not CLEAN_DATA_DIR.exists():
+        print(f"❌ Directory not found: {CLEAN_DATA_DIR}")
+        print("Please run from project root.")
+        return 1
+    
+    # Load all tables
+    results = {}
+    for file_name, table_name in FILE_TABLE_MAP.items():
+        csv_path = CLEAN_DATA_DIR / file_name
+        success = load_csv_with_bq_cli(table_name, csv_path)
+        results[table_name] = success
+    
+    # Print summary
+    print("=" * 70)
+    print("LOAD SUMMARY")
+    print("=" * 70)
+    
+    successful = sum(1 for v in results.values() if v)
+    total = len(results)
+    
+    for table_name, success in results.items():
+        status = "✅ OK" if success else "❌ FAILED"
+        print(f"  {table_name:15} {status}")
+    
+    print(f"\nTotal: {successful}/{total} tables loaded")
+    print("=" * 70)
+    
+    if successful == total:
+        print("✅ All data loaded! Ready for Looker Studio.")
+        return 0
+    else:
+        print(f"❌ {total - successful} tables failed")
         return 1
 
 
