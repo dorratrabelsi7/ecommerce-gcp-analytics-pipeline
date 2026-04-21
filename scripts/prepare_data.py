@@ -311,7 +311,7 @@ DATA QUALITY IMPROVEMENTS
         
         # Save report
         report_file = DOCS_DIR / "cleaning_report.txt"
-        with open(report_file, "w") as f:
+        with open(report_file, "w", encoding="utf-8") as f:
             f.write(report)
         
         logger.info(f"✓ Cleaning report saved -> docs/cleaning_report.txt")
