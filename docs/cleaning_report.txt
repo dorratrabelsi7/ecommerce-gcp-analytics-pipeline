@@ -1,0 +1,73 @@
+
+================================================================================
+E-COMMERCE ANALYTICS PIPELINE - DATA CLEANING REPORT
+Generated: 2026-04-21T21:25:34.608086
+================================================================================
+
+DATASET CLEANING SUMMARY
+================================================================================
+
+
+CLIENTS
+  Initial rows:     2,020
+  Removed:          105
+  Final rows:       1,915
+  Retention rate:   94.80%
+  - Duplicates Removed: 20
+  - Null Keys Removed: 40
+  - Invalid Ages Removed: 45
+
+PRODUCTS
+  Initial rows:     50
+  Removed:          0
+  Final rows:       50
+  Retention rate:   100.00%
+  - Duplicates Removed: 0
+  - Null Keys Removed: 0
+
+ORDERS
+  Initial rows:     15,150
+  Removed:          150
+  Final rows:       15,000
+  Retention rate:   99.01%
+  - Null Keys Removed: 0
+
+ORDER_ITEMS
+  Initial rows:     25,487
+  Removed:          0
+  Final rows:       25,487
+  Retention rate:   100.00%
+  - Null Keys Removed: 0
+
+INCIDENTS
+  Initial rows:     3,030
+  Removed:          30
+  Final rows:       3,000
+  Retention rate:   99.01%
+  - Null Keys Removed: 0
+
+PAGE_VIEWS
+  Initial rows:     50,500
+  Removed:          500
+  Final rows:       50,000
+  Retention rate:   99.01%
+  - Null Keys Removed: 0
+
+OVERALL STATISTICS
+================================================================================
+Total Initial Rows:     96,237
+Total Removed:          785
+Total Final Rows:       95,452
+Overall Retention:      99.18%
+
+DATA QUALITY IMPROVEMENTS
+================================================================================
+✓ Duplicates removed
+✓ NULL keys removed
+✓ Emails fixed (at → @)
+✓ Invalid ages removed
+✓ Dates parsed to datetime
+✓ Monetary values rounded to 2 decimals
+✓ Order totals recomputed from items (source of truth)
+
+================================================================================

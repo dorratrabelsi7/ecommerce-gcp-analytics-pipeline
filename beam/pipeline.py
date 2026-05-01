@@ -1,5 +1,10 @@
 """
-Apache Beam pipeline: Pub/Sub to BigQuery (DirectRunner)
+Apache Beam pipeline: Pub/Sub to BigQuery (DataflowRunner ONLY)
+
+⚠️  WARNING: This pipeline only works with DataflowRunner on GCP!
+    - ReadFromPubSub is NOT compatible with DirectRunner
+    - WriteToBigQuery is NOT compatible with DirectRunner
+    - Use beam/pipeline_directrunner.py for LOCAL testing with DirectRunner
 
 This pipeline:
 1. Pulls messages from Pub/Sub (batch pull, not streaming)
@@ -11,13 +16,19 @@ This pipeline:
 Author: Dorra Trabelsi
 Date: 2026-04-21
 
-COST NOTE: DirectRunner runs entirely on your local machine.
-No GCP compute resources are used. This is always $0.
-DataflowRunner is intentionally excluded — it bills per vCPU-hour.
+IMPORTANT:
+- DirectRunner ❌ NOT SUPPORTED (will fail)
+- DataflowRunner ✅ REQUIRED (must run on GCP)
+- Cost: Billed per vCPU-hour on Dataflow
 
-Usage:
-    python beam/pipeline.py --limit 100
-    python beam/pipeline.py --project ecommerce-494010 --limit 200
+Usage (GCP only):
+    python beam/pipeline.py --project ecommerce-494010 --runner DataflowRunner
+    bash beam/submit_to_dataflow.sh
+
+For LOCAL testing, use:
+    python beam/pipeline_directrunner.py --all
+
+See beam/DIRECTRUNNER_GUIDE.md for more details.
 """
 
 import sys

@@ -1,0 +1,33 @@
+============================================================
+DATA GENERATION REPORT
+Generated at: 2026-04-21T21:25:14.308873
+============================================================
+
+--- Row counts ---
+clients.csv       :    2,020 rows
+products.csv      :       50 rows
+orders.csv        :   15,150 rows
+order_items.csv   :   25,487 rows
+incidents.csv     :    3,030 rows
+page_views.csv    :   50,500 rows
+
+--- Country distribution (clients) ---
+  France              : 1,084 (53.7%)
+  Belgium             :   315 (15.6%)
+  Switzerland         :   208 (10.3%)
+  Canada              :   155 (7.7%)
+  Morocco             :    88 (4.4%)
+  Tunisia             :    80 (4.0%)
+  Senegal             :    47 (2.3%)
+
+--- Total simulated revenue : 12,271,094.79 EUR ---
+--- Delivery rate           :  9,601 / 15,150 (63.4%) ---
+
+--- Top 5 products by revenue ---
+  Monitor Arm Dual                   : 800,085.72 EUR
+  Ergonomic Chair Pro                : 688,044.42 EUR
+  Bookshelf Oak                      : 644,251.67 EUR
+  Standing Desk Electric             : 583,794.30 EUR
+  Chromebook Air                     : 570,878.62 EUR
+
+============================================================
